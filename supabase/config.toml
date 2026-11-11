@@ -1,0 +1,2 @@
+[functions.paypal-oauth]
+verify_jwt = false
