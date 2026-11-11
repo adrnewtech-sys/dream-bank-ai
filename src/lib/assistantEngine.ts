@@ -32,7 +32,7 @@ const MONTH_NAMES = [
   'january', 'february', 'march', 'april', 'may', 'june',
   'july', 'august', 'september', 'october', 'november', 'december',
 ];
-const DEFAULT_FOLLOW_UPS = [
+export const DEFAULT_FOLLOW_UPS = [
   'How much can I save by Christmas?',
   'Why did my savings forecast change?',
   'How will inflation affect my savings?',

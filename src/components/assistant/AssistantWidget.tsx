@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { MessageCircle, Send, Sparkles, X } from 'lucide-react';
 import {
+  DEFAULT_FOLLOW_UPS,
   answerQuestion,
   buildOpeningReply,
   type AssistantContext,
   type AssistantState,
 } from '@/lib/assistantEngine';
+import { askFinancialAdvisor, buildAdvisorSnapshot, type AdvisorTurn } from '@/lib/advisorClient';
 
 interface ChatMessage {
   id: number;
@@ -18,17 +20,21 @@ interface AssistantWidgetProps {
   context: AssistantContext;
 }
 
+const HISTORY_TURNS = 12;
+
 export function AssistantWidget({ context }: AssistantWidgetProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [pending, setPending] = useState(false);
+  const [aiConnected, setAiConnected] = useState<boolean | null>(null);
   const [assistantState, setAssistantState] = useState<AssistantState>({ goalId: null });
   const idCounter = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, pending]);
 
   function nextId(): number {
     idCounter.current += 1;
@@ -42,25 +48,42 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
     setMessages([{ id: nextId(), role: 'assistant', text: opening.text, followUps: opening.followUps }]);
   }
 
-  function ask(question: string) {
+  async function ask(question: string) {
     const trimmed = question.trim();
-    if (!trimmed) return;
-    const reply = answerQuestion(trimmed, context, assistantState);
-    const userId = nextId();
-    const assistantId = nextId();
-    setMessages((prev) => [
-      ...prev,
-      { id: userId, role: 'user', text: trimmed, followUps: [] },
-      { id: assistantId, role: 'assistant', text: reply.text, followUps: reply.followUps },
-    ]);
-    setAssistantState({ goalId: reply.goalId });
+    if (!trimmed || pending) return;
+
+    const userMessage: ChatMessage = { id: nextId(), role: 'user', text: trimmed, followUps: [] };
+    const history: AdvisorTurn[] = [...messages, userMessage]
+      .slice(-HISTORY_TURNS)
+      .map((message) => ({ role: message.role, content: message.text }));
+    setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    setPending(true);
+
+    const result = await askFinancialAdvisor(history, buildAdvisorSnapshot(context));
+    setPending(false);
+
+    let assistantMessage: ChatMessage;
+    if (result.ok) {
+      setAiConnected(true);
+      assistantMessage = { id: nextId(), role: 'assistant', text: result.answer, followUps: DEFAULT_FOLLOW_UPS };
+    } else {
+      if (result.reason === 'not_configured') setAiConnected(false);
+      const reply = answerQuestion(trimmed, context, assistantState);
+      setAssistantState({ goalId: reply.goalId });
+      assistantMessage = { id: nextId(), role: 'assistant', text: reply.text, followUps: reply.followUps };
+    }
+    setMessages((prev) => [...prev, assistantMessage]);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    ask(input);
+    void ask(input);
   }
+
+  const subtitle = aiConnected === false
+    ? 'Basic answers from your forecast'
+    : 'Advisor grounded in your numbers';
 
   return (
     <>
@@ -77,7 +100,7 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
               </span>
               <div>
                 <p className="text-sm font-semibold">DreamBank AI Assistant</p>
-                <p className="text-xs text-blue-100">Answers use your live forecast</p>
+                <p className="text-xs text-blue-100">{subtitle}</p>
               </div>
             </div>
             <button
@@ -96,8 +119,8 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
                 <div
                   className={
                     message.role === 'user'
-                      ? 'max-w-[85%] rounded-2xl rounded-br-md bg-blue-600 px-4 py-2.5 text-sm leading-6 text-white'
-                      : 'max-w-[90%] rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-2.5 text-sm leading-6 text-slate-800 shadow-sm'
+                      ? 'max-w-[85%] whitespace-pre-line rounded-2xl rounded-br-md bg-blue-600 px-4 py-2.5 text-sm leading-6 text-white'
+                      : 'max-w-[90%] whitespace-pre-line rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-2.5 text-sm leading-6 text-slate-800 shadow-sm'
                   }
                 >
                   {message.text}
@@ -108,8 +131,9 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
                       <button
                         key={followUp}
                         type="button"
-                        onClick={() => ask(followUp)}
-                        className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-blue-700 transition hover:border-blue-400 hover:bg-blue-50"
+                        disabled={pending}
+                        onClick={() => void ask(followUp)}
+                        className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-blue-700 transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {followUp}
                       </button>
@@ -118,19 +142,27 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
                 )}
               </div>
             ))}
+            {pending && (
+              <div className="flex flex-col items-start">
+                <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-500 shadow-sm animate-pulse">
+                  Checking your numbers...
+                </div>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-slate-200 bg-white p-3">
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask about your savings or goals"
+              disabled={pending}
+              placeholder="Ask about purchases, trips, goals or savings"
               aria-label="Ask the assistant a question"
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || pending}
               aria-label="Send question"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
