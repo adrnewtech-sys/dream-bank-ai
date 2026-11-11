@@ -1,5 +1,2 @@
 [functions.paypal-oauth]
 verify_jwt = false
-
-[functions.financial-advisor]
-verify_jwt = true

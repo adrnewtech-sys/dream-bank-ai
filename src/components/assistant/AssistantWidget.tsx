@@ -7,7 +7,6 @@ import {
   type AssistantContext,
   type AssistantState,
 } from '@/lib/assistantEngine';
-import { askFinancialAdvisor, buildAdvisorSnapshot, type AdvisorTurn } from '@/lib/advisorClient';
 
 interface ChatMessage {
   id: number;
@@ -20,21 +19,17 @@ interface AssistantWidgetProps {
   context: AssistantContext;
 }
 
-const HISTORY_TURNS = 12;
-
 export function AssistantWidget({ context }: AssistantWidgetProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [pending, setPending] = useState(false);
-  const [aiConnected, setAiConnected] = useState<boolean | null>(null);
   const [assistantState, setAssistantState] = useState<AssistantState>({ goalId: null });
   const idCounter = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, pending]);
+  }, [messages]);
 
   function nextId(): number {
     idCounter.current += 1;
@@ -48,42 +43,22 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
     setMessages([{ id: nextId(), role: 'assistant', text: opening.text, followUps: opening.followUps }]);
   }
 
-  async function ask(question: string) {
+  function ask(question: string) {
     const trimmed = question.trim();
-    if (!trimmed || pending) return;
+    if (!trimmed) return;
 
     const userMessage: ChatMessage = { id: nextId(), role: 'user', text: trimmed, followUps: [] };
-    const history: AdvisorTurn[] = [...messages, userMessage]
-      .slice(-HISTORY_TURNS)
-      .map((message) => ({ role: message.role, content: message.text }));
-    setMessages((prev) => [...prev, userMessage]);
+    const reply = answerQuestion(trimmed, context, assistantState);
+    const assistantMessage: ChatMessage = { id: nextId(), role: 'assistant', text: reply.text, followUps: reply.followUps };
+    setAssistantState({ goalId: reply.goalId });
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setInput('');
-    setPending(true);
-
-    const result = await askFinancialAdvisor(history, buildAdvisorSnapshot(context));
-    setPending(false);
-
-    let assistantMessage: ChatMessage;
-    if (result.ok) {
-      setAiConnected(true);
-      assistantMessage = { id: nextId(), role: 'assistant', text: result.answer, followUps: DEFAULT_FOLLOW_UPS };
-    } else {
-      if (result.reason === 'not_configured') setAiConnected(false);
-      const reply = answerQuestion(trimmed, context, assistantState);
-      setAssistantState({ goalId: reply.goalId });
-      assistantMessage = { id: nextId(), role: 'assistant', text: reply.text, followUps: reply.followUps };
-    }
-    setMessages((prev) => [...prev, assistantMessage]);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void ask(input);
+    ask(input);
   }
-
-  const subtitle = aiConnected === false
-    ? 'Basic answers from your forecast'
-    : 'Advisor grounded in your numbers';
 
   return (
     <>
@@ -100,7 +75,7 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
               </span>
               <div>
                 <p className="text-sm font-semibold">DreamBank AI Assistant</p>
-                <p className="text-xs text-blue-100">{subtitle}</p>
+                <p className="text-xs text-blue-100">Answers from your own numbers</p>
               </div>
             </div>
             <button
@@ -131,9 +106,8 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
                       <button
                         key={followUp}
                         type="button"
-                        disabled={pending}
-                        onClick={() => void ask(followUp)}
-                        className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-blue-700 transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => ask(followUp)}
+                        className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-blue-700 transition hover:border-blue-400 hover:bg-blue-50"
                       >
                         {followUp}
                       </button>
@@ -142,27 +116,19 @@ export function AssistantWidget({ context }: AssistantWidgetProps) {
                 )}
               </div>
             ))}
-            {pending && (
-              <div className="flex flex-col items-start">
-                <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-500 shadow-sm animate-pulse">
-                  Checking your numbers...
-                </div>
-              </div>
-            )}
           </div>
 
           <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-slate-200 bg-white p-3">
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              disabled={pending}
               placeholder="Ask about purchases, trips, goals or savings"
               aria-label="Ask the assistant a question"
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
             />
             <button
               type="submit"
-              disabled={!input.trim() || pending}
+              disabled={!input.trim()}
               aria-label="Send question"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
