@@ -10,7 +10,9 @@ import { ProgressBar } from '@/components/ui/ProgressBar';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { GOAL_COLORS, getGoalIcon } from '@/lib/goalStyles';
 import { calculateProtectedBalance } from '@/lib/finance';
+import { ForecastCenter } from '@/components/forecast/ForecastCenter';
 import { computeAIDashboardData } from '@/lib/aiPredictions';
+import { computeForecastCenter } from '@/lib/forecastEngine';
 import { formatMoney, formatPercent } from '@/lib/format';
 import { getFirstName, getGreeting } from '@/lib/profile';
 import { buildTransactionHistory } from '@/lib/transactionHistory';
@@ -31,6 +33,7 @@ export function DashboardView({ state, fullName, onEditBudget, onNavigate }: Das
   const hasBudget = budget !== null;
   const balance = calculateProtectedBalance(paypal.paypalBalance, portfolio.totalSaved);
   const aiData = computeAIDashboardData(paypal, budget, incomeHistory, goals, portfolio);
+  const forecast = computeForecastCenter(paypal, budget, balance.spendableBalance);
   const monthlyIncome = paypal.isSandbox ? aiData.paypalFlow.incomeThisMonth : (hasBudget ? budget.monthlyIncome : null);
   const monthlyExpenses = paypal.isSandbox ? aiData.paypalFlow.expensesThisMonth : (hasBudget ? budget.monthlyExpenses : null);
   const netCashFlow = monthlyIncome !== null && monthlyExpenses !== null ? monthlyIncome - monthlyExpenses : null;
@@ -134,6 +137,8 @@ export function DashboardView({ state, fullName, onEditBudget, onNavigate }: Das
       </section>
 
       <AIPredictionCenter prediction={aiData.prediction} allocations={aiData.allocations} />
+
+      <ForecastCenter data={forecast} />
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
