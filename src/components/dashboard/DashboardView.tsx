@@ -10,6 +10,7 @@ import { ProgressBar } from '@/components/ui/ProgressBar';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { GOAL_COLORS, getGoalIcon } from '@/lib/goalStyles';
 import { calculateProtectedBalance } from '@/lib/finance';
+import { AssistantWidget } from '@/components/assistant/AssistantWidget';
 import { ForecastCenter } from '@/components/forecast/ForecastCenter';
 import { computeAIDashboardData } from '@/lib/aiPredictions';
 import { computeForecastCenter } from '@/lib/forecastEngine';
@@ -220,6 +221,16 @@ export function DashboardView({ state, fullName, onEditBudget, onNavigate }: Das
           </ul>
         )}
       </section>
+
+      <AssistantWidget
+        context={{
+          protectedSavings: balance.protectedBalance,
+          spendableBalance: balance.spendableBalance,
+          forecast,
+          goals,
+          now: new Date(),
+        }}
+      />
     </div>
   );
 }
